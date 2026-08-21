@@ -99,6 +99,31 @@ report.write_json(frozen, "baselines_frozen.json", results_dir=ROOT / "results")
 print(json.dumps(frozen, ensure_ascii=False, indent=2))
 
 # %% [markdown]
+# ### Giữ lại dự đoán từng mẫu của (a) và (b)
+#
+# `baselines_frozen.json` chỉ giữ điểm trung bình. Mục 6 của REPORT.md lại đòi bảng
+# định tính có cột **(b) prompt** đặt cạnh cột fine-tune — mà (b) chỉ tồn tại ở đây:
+# NB5 đọc điểm đã đóng băng chứ không sinh lại. Không lưu ở bước này thì sau đó phải
+# sinh lại toàn bộ tập eval chỉ để điền một cột bảng.
+#
+# Ghi ra file riêng, **không** động vào `baselines_frozen.json` — file đó là mốc đóng
+# băng và cổng liêm chính của `verify.py` đọc nó.
+
+# %%
+baseline_preds = [
+    {"i": i,
+     "ticket": r["input"],
+     "label": r["label"],
+     "a_pred": pa.replace("\n", " "),
+     "a_score": round(ev.triage_field_accuracy(pa, r["label"]), 4),
+     "b_pred": pb.replace("\n", " "),
+     "b_score": round(ev.triage_field_accuracy(pb, r["label"]), 4)}
+    for i, (r, pa, pb) in enumerate(zip(target, preds_a, preds_b))
+]
+report.write_json(baseline_preds, "baseline_preds.json", results_dir=ROOT / "results")
+print(f"-> results/baseline_preds.json  ({len(baseline_preds)} mẫu, (a) và (b))")
+
+# %% [markdown]
 # ### Đọc kết quả trước khi đi tiếp
 #
 # * **(b) đã cao sẵn?** Tốt — bài toán của bạn có thể *không cần* fine-tune. Đó là một

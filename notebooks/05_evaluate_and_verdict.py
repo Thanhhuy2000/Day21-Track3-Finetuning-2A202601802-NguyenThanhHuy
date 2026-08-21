@@ -186,16 +186,40 @@ report.write_json(autopsy, "autopsy.json", results_dir=ROOT / "results")
 # cherry-pick và bị trừ điểm ở mục Evaluation Quality.
 
 # %%
+# Dự đoán từng mẫu của baseline (b), do NB2 giữ lại. Không có nó thì bảng định tính
+# chỉ có một cột và không so được với thứ mà fine-tune phải thắng.
+_bp_path = ROOT / "results" / "baseline_preds.json"
+_bp = {r["i"]: r for r in json.loads(_bp_path.read_text(encoding="utf-8"))} \
+    if _bp_path.exists() else {}
+if not _bp:
+    print("⚠ thiếu results/baseline_preds.json — chạy lại NB2 để có cột (b)")
+
 rows = []
 for i, (p, r) in enumerate(zip(preds_ft, target)):
     s_ft = ev.triage_field_accuracy(p, r["label"])
-    rows.append({"i": i, "ticket": r["input"][:70], "ft_score": round(s_ft, 2),
-                 "ft_pred": p.replace("\n", " ")[:90]})
-rows.sort(key=lambda x: x["ft_score"])
-print("--- 3 ca TỆ NHẤT (bắt buộc đưa vào report) ---")
-print(report.markdown_table(rows[:3], ["i", "ticket", "ft_score", "ft_pred"]))
-print("\n--- 3 ca TỐT NHẤT ---")
-print(report.markdown_table(rows[-3:], ["i", "ticket", "ft_score", "ft_pred"]))
+    b = _bp.get(i, {})
+    rows.append({"i": i, "ticket": r["input"][:70],
+                 "b_score": b.get("b_score"), "ft_score": round(s_ft, 2),
+                 "delta": None if b.get("b_score") is None else round(s_ft - b["b_score"], 2),
+                 "b_pred": (b.get("b_pred") or "")[:90],
+                 "ft_pred": p.replace("\n", " ")[:90],
+                 "label": r["label"]})
+
+COLS = ["i", "ticket", "b_score", "ft_score", "delta", "ft_pred"]
+# Xếp theo delta (FT − b) khi có: mục 6 hỏi fine-tune thua Ở ĐÂU, không phải nó yếu
+# tuyệt đối ở đâu. Một mẫu cả hai cùng 0.5 không phải ca thua; nó chỉ là mẫu khó.
+_key = (lambda x: (x["delta"] is None, x["delta"], x["ft_score"])) if _bp \
+    else (lambda x: x["ft_score"])
+rows.sort(key=_key)
+print("--- 3 ca fine-tune THUA nặng nhất (bắt buộc đưa vào report) ---")
+print(report.markdown_table(rows[:3], COLS))
+print("\n--- 3 ca fine-tune THẮNG đậm nhất ---")
+print(report.markdown_table(rows[-3:], COLS))
+if _bp:
+    n_loss = sum(1 for x in rows if x["delta"] is not None and x["delta"] < 0)
+    n_win = sum(1 for x in rows if x["delta"] is not None and x["delta"] > 0)
+    print(f"\nfine-tune thắng {n_win} mẫu, thua {n_loss} mẫu, "
+          f"hoà {len(rows) - n_win - n_loss} mẫu")
 report.write_json(rows, "qualitative.json", results_dir=ROOT / "results")
 
 # %% [markdown]

@@ -1,0 +1,13 @@
+# The corpus is checksummed. `verify.py` compares data/*.jsonl against
+# data/checksums.json, and that gate is the one that accuses a student of editing the
+# eval set after seeing their results — the most serious thing this repo asserts.
+#
+# On Windows, git's default `core.autocrlf=true` rewrites LF to CRLF on checkout. Every
+# byte hash then differs, and a student who has touched nothing is told their eval set
+# is modified. Measured 2026-08-21: all four data files failed the gate on a clean
+# Windows clone; normalising CRLF back to LF reproduced every expected hash exactly.
+#
+# Pin the corpus to LF on every platform. verify.py also normalises before hashing, so
+# clones made before this file existed still pass.
+data/*.jsonl text eol=lf
+data/checksums.json text eol=lf

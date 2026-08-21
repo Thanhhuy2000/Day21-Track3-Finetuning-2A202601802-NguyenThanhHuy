@@ -37,3 +37,6 @@ hf_cache/
 .idea/
 .vscode/
 *.swp
+
+# Submission bundles downloaded from Colab — 100+ MB, and GitHub rejects them.
+*.zip

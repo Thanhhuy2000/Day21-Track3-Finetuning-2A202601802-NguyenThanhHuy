@@ -32,7 +32,21 @@ def check(name: str, status: str, detail: str = "") -> None:
 
 
 def _sha(path: pathlib.Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()[:16]
+    """Content hash, insensitive to line-ending convention.
+
+    The raw-bytes version failed on every Windows clone. git's default
+    `core.autocrlf=true` rewrites LF to CRLF on checkout, so all four corpus files
+    hashed differently and the integrity gate reported that the student had edited the
+    eval set after seeing results — the most serious accusation in this file, made
+    against someone who had not opened the data. Measured 2026-08-21: normalising CRLF
+    back to LF reproduced all four expected hashes exactly.
+
+    Normalising keeps what the gate is for. A newline convention is not content; any
+    edit to an actual record still moves the hash. `.gitattributes` pins these files to
+    LF going forward, and this handles clones taken before that existed.
+    """
+    raw = path.read_bytes().replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+    return hashlib.sha256(raw).hexdigest()[:16]
 
 
 def _load_json(path: pathlib.Path):

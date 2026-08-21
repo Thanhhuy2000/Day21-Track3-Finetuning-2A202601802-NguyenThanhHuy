@@ -206,3 +206,42 @@ def test_nb6_releases_the_base_before_reloading_it():
         "NB6 must drop BOTH names — `merged` alone leaves the base alive in VRAM")
     assert src.index("generate.free_memory()", release) < reload_, (
         "free_memory() must run before the second load_base(), not after")
+
+
+def test_corpus_checksums_survive_a_windows_checkout():
+    """git's default core.autocrlf=true rewrites LF to CRLF on checkout, so hashing raw
+    bytes failed the integrity gate on every Windows clone -- telling a student who had
+    not touched the data that they had edited the eval set after seeing results.
+    Measured 2026-08-21 against a clean clone: all four corpus files.
+
+    The gate must still catch a real edit, so assert both directions.
+    """
+    import hashlib
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("_verify", ROOT / "scripts" / "verify.py")
+    verify = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(verify)
+
+    ref = json.loads((ROOT / "data" / "checksums.json").read_text(encoding="utf-8"))
+    for name, expected in ref.items():
+        path = ROOT / "data" / name
+        assert verify._sha(path) == expected, f"{name} does not match checksums.json"
+
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        lf = pathlib.Path(tmp) / "lf.jsonl"
+        crlf = pathlib.Path(tmp) / "crlf.jsonl"
+        edited = pathlib.Path(tmp) / "edited.jsonl"
+        lf.write_bytes(b'{"a": 1}\n{"b": 2}\n')
+        crlf.write_bytes(b'{"a": 1}\r\n{"b": 2}\r\n')
+        edited.write_bytes(b'{"a": 1}\n{"b": 3}\n')
+        assert verify._sha(lf) == verify._sha(crlf), "line endings are not content"
+        assert verify._sha(lf) != verify._sha(edited), "an edited record must still move the hash"
+
+
+def test_seed_writer_emits_lf_on_every_platform():
+    """Text mode turns "\n" into "\r\n" on Windows, so `make data` would regenerate a
+    corpus that cannot match the checksums.json this same script writes."""
+    src = (ROOT / "scripts" / "make_seed_data.py").read_text(encoding="utf-8")
+    assert r'newline="\n"' in src, "make_seed_data._write must pin LF explicitly"

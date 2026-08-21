@@ -152,7 +152,11 @@ def main() -> None:
 
 
 def _write(path: pathlib.Path, rows: list[dict]) -> None:
-    with path.open("w", encoding="utf-8") as fh:
+    # newline="\n" is load-bearing on Windows. Text mode translates "\n" to "\r\n"
+    # there, so `make data` would emit a corpus that can never match checksums.json —
+    # the file this same script generates — and the integrity gate would fail on a
+    # corpus the lab itself just produced. The seed data is byte-identical everywhere.
+    with path.open("w", encoding="utf-8", newline="\n") as fh:
         for r in rows:
             fh.write(json.dumps(r, ensure_ascii=False) + "\n")
 

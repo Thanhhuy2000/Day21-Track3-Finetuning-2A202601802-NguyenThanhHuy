@@ -64,11 +64,33 @@ assert delta >= -TOL, (
     "với DoRA cần PEFT ≥ 0.10 để gộp đúng vector magnitude (deck §18)."
 )
 
-out = ROOT / "adapters" / "merged"
-merged.save_pretrained(out); tok.save_pretrained(out)
+# Ghi artefact NGAY sau assert, TRƯỚC khi lưu trọng số.
+#
+# Thứ tự cũ ngược lại, và nó làm hỏng đúng cái nó muốn bảo vệ. `merge_check.json` là
+# thứ duy nhất được chấm ở đây; model đã merge thì không ai đọc nữa — mục 3 ngay bên
+# dưới nạp lại base rồi gắn adapter, chứ không đụng tới thư mục `merged`. Vậy mà bằng
+# chứng đã đo xong lại phải xếp hàng sau một lần ghi 8,4 GB.
+#
+# Đo trên Colab free T4 2026-08-21: `save_pretrained` của model 4B fp16 ghi 8,41 GB
+# mất >13 phút (~11 MB/s trên overlayfs) và tqdm hiện `Writing model shards: 0% 0/1`
+# suốt thời gian đó — chỉ có một shard nên thanh tiến trình không nhích. Trông y hệt
+# treo máy. Người chạy ngắt ô, và mất luôn cả phán quyết đã tính xong.
 report.write_json({"before_merge": before, "after_merge": after, "delta": delta,
                    "tolerance": TOL, "n": len(target)},
                   "merge_check.json", results_dir=ROOT / "results")
+print(f"-> results/merge_check.json (before={before:.4f} after={after:.4f} Δ={delta:+.4f})")
+
+# Lưu trọng số đã merge là TUỲ CHỌN, và mặc định TẮT. Rubric B1 đòi merge, assert không
+# tụt điểm, và hot-swap — không đòi 8,4 GB trên đĩa. Bật bằng SAVE_MERGED=1 nếu bạn
+# thật sự muốn đem đi phục vụ (deck §18).
+if os.environ.get("SAVE_MERGED") == "1":
+    out = ROOT / "adapters" / "merged"
+    print(f"lưu model đã merge -> {out}  (~8 GB, vài phút, thanh tiến trình sẽ đứng ở 0/1)")
+    merged.save_pretrained(out); tok.save_pretrained(out)
+    print("   xong")
+else:
+    print("bỏ qua lưu model đã merge (SAVE_MERGED=1 để bật) — không ảnh hưởng điểm B1")
+
 del merged; generate.free_memory()
 
 # %% [markdown]

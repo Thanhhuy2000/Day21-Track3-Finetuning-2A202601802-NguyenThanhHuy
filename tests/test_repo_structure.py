@@ -187,3 +187,22 @@ def test_prompts_have_exactly_one_definition():
     assert generate.OPTIMIZED_PROMPT is config.OPTIMIZED_PROMPT
     gen_src = (ROOT / "src" / "labkit" / "generate.py").read_text(encoding="utf-8")
     assert "NAIVE_PROMPT = " not in gen_src, "generate.py must import, not redefine"
+
+
+def test_nb6_releases_the_base_before_reloading_it():
+    """`merge_and_unload()` returns the base module itself, not a copy, so `del merged`
+    frees nothing while `model` still points at the same tensors. Section 3 then loads a
+    second base on top of the first: on a 14.6 GB T4 with a 4B model that is 8 GB too
+    many, accelerate offloads the tail layers, and PEFT refuses the adapter with
+    `ValueError: We need an offload_dir`. Measured on free Colab T4 2026-08-21.
+
+    Invisible on the CPU tier -- 0.8B fits twice over -- so only the lab's own default
+    hardware shows it, which is exactly the class of bug worth pinning down in a test.
+    """
+    src = (ROOT / "notebooks" / "06_merge_and_serve.py").read_text(encoding="utf-8")
+    release = src.index("del merged")
+    reload_ = src.index("generate.load_base", release)
+    assert "del merged, model" in src, (
+        "NB6 must drop BOTH names — `merged` alone leaves the base alive in VRAM")
+    assert src.index("generate.free_memory()", release) < reload_, (
+        "free_memory() must run before the second load_base(), not after")

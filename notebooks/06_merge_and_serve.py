@@ -91,7 +91,25 @@ if os.environ.get("SAVE_MERGED") == "1":
 else:
     print("bỏ qua lưu model đã merge (SAVE_MERGED=1 để bật) — không ảnh hưởng điểm B1")
 
-del merged; generate.free_memory()
+# `model` phải chết cùng `merged`, không phải chỉ `merged`.
+#
+# `merge_and_unload()` KHÔNG tạo bản sao — nó cộng (α/r)·BA vào chỗ cũ rồi trả về chính
+# module base ấy. `merged` và `model.base_model.model` là cùng một bộ tensor. Bỏ mỗi
+# `merged` thì `model` vẫn giữ tham chiếu, nên không byte nào được thả, và
+# `free_memory()` chỉ gọi `empty_cache()` trên vùng nhớ chưa được giải phóng — nó dọn
+# cache của allocator, không dọn được thứ Python còn trỏ tới.
+#
+# Mục 3 ngay dưới nạp base lần hai. Với ~8 GB cũ còn nguyên trên card 14,6 GB,
+# `device_map="auto"` đẩy 13 lớp cuối sang CPU, rồi PEFT từ chối gắn adapter vào model
+# đã offload:
+#
+#     ValueError: We need an `offload_dir` to dispatch this model according to this
+#     `device_map`, the following submodules need to be offloaded: ...layers.19 ...
+#
+# Đo trên Colab free T4 2026-08-21, tier T4/4B. Ở tier CPU (0.8B) lỗi này vô hình: hai
+# bản model vẫn vừa VRAM, nên nó chỉ lộ ra đúng trên phần cứng lab đặt làm mặc định.
+del merged, model
+generate.free_memory()
 
 # %% [markdown]
 # ## 3. Một base, nhiều adapter — hoán đổi theo request

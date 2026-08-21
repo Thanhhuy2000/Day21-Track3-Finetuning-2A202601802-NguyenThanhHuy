@@ -182,13 +182,64 @@ rằng chưa ai đo được điều này, và lần đo rút gọn duy nhất t
 thua. Ở ngân sách đầy đủ, kết quả đảo chiều: fine-tune thắng +0.205.
 
 Nhưng cổng hồi quy bốn nhóm bác bỏ nó, và bác bỏ vì đúng một lý do: năng lực tổng quát tụt
-từ 0.7578 xuống 0.5889, tức −0.169 so với dung sai 0.020 — vượt ngưỡng **8,4 lần**. Đây là
-deck §14.3, thảm hoạ quên. Dữ liệu huấn luyện dạy mô hình rằng đầu vào nào cũng phải thành
-JSON triage, và mô hình học đúng như thế, kể cả khi câu hỏi là kiến thức phổ thông. Đáng chú
-ý khi đặt cạnh lần chạy 0.8B đã ghi trong `SIMULATION-FINDINGS.md`: ở đó regression sụp
-0.644 → 0.067, gần như xoá sạch. Ở 4B nó chỉ tụt 0.758 → 0.589, giữ lại 78%. Model lớn hơn
-chống chịu tốt hơn — nhưng "tốt hơn" vẫn không phải "đạt", và khoảng cách tới ngưỡng vẫn là
-gần một bậc độ lớn.
+từ 0.7578 xuống 0.5889, tức −0.169 so với dung sai 0.020 — vượt ngưỡng **8,4 lần**. Đặt cạnh
+lần chạy 0.8B đã ghi trong `SIMULATION-FINDINGS.md`, nơi regression sụp 0.644 → 0.067 gần như
+xoá sạch, thì ở 4B nó giữ lại 78%. Model lớn hơn chống chịu tốt hơn — nhưng "tốt hơn" vẫn
+không phải "đạt".
+
+### 5.1 — Cái mất đi không phải kiến thức, mà là chỗ đặt câu trả lời
+
+Con số −0.169 không nói được cơ chế, nên tôi đo tiếp từng câu một
+(`results/regression_preds.json`, dựng lại đúng lời gọi của NB5 nên hai giá trị trung bình
+khớp chính xác: base 0.7578, fine-tune 0.5889). Kết quả: **5/15 câu tệ hơn, 9 câu giữ
+nguyên, 1 câu tốt hơn.**
+
+Và cả 5 câu tệ hơn có chung một cơ chế — không phải quên, mà là **định dạng đầu ra bị bắt cóc**:
+
+| # | Câu hỏi | base | FT | Fine-tune trả lời gì |
+|---|---|---|---|---|
+| 9 | Một năm có bao nhiêu tháng? | 1.00 | **0.00** | `{"intent": "hoi_thong_tin", "urgency": "thap", "product": null, "sentiment": "trung_tinh"}` |
+| 10 | Nước sôi ở bao nhiêu độ C? | 1.00 | **0.00** | schema triage + `intent_confidence`, `entities` — không có ô nào chứa "100" |
+| 13 | TP.HCM trước đây tên gì? | 1.00 | **0.00** | `{"intent": "hoi_thong_tin", "intent_text": "Người dùng đang hỏi về tên cũ của thành phố Hồ Chí Minh", ...}` |
+| 12 | Ý nghĩa 'Có công mài sắt…' | 0.67 | 0.33 | `{"intent": "tinh_thanh", "lesson": "...kiên trì...", "example": "..."}` |
+| 11 | Kể tên một trái cây nhiệt đới | 0.20 | 0.00 | `{"intent": "hoi_thong_tin", "product": "dâu tây", ...}` |
+
+Câu 13 là bằng chứng quyết định: mô hình viết ra rằng *"Người dùng đang hỏi về tên cũ của
+thành phố Hồ Chí Minh"*. Nó **hiểu** câu hỏi. Nó chỉ không có ô nào để viết "Sài Gòn" vào,
+vì schema nó học được có đúng 4 khoá và không khoá nào dành cho một câu trả lời.
+
+Đối chiếu với 10 câu **không** tụt điểm thì cơ chế lộ ra hoàn toàn. Ở những câu đó, mô hình
+**tự chế ra schema mới có ô chứa đáp án**, và trả lời đúng:
+
+* `Thủ đô của Việt Nam?` → `{"intent": "trivia", "confidence": 0.95, "answer": "Hà Nội", ...}` — 1.00
+* `Ai là tác giả Truyện Kiều?` → `{"intent": "hoi_thong_tin", "answer": "...nhà thơ Nguyễn Du"}` — 1.00
+* `Dịch 'Tôi thích đọc sách'` → `"I like reading books."` — 1.00
+* `2 mũ 10 bằng bao nhiêu?` → `{"intent": "math", "answer": "1024"}` — **1.00, trong khi base SAI (0.00)**
+
+Câu cuối đáng dừng lại: trên câu hỏi đó bản fine-tune **giỏi hơn** base. Đó là điều không thể
+xảy ra nếu 30 step huấn luyện đã xoá mất kiến thức.
+
+Vậy chẩn đoán đúng không phải "mô hình quên", mà là: huấn luyện dạy nó rằng **mọi đầu vào
+đều là JSON có cấu trúc**, và nó khái quát hoá *cái vỏ* đó ra ngoài miền. Khi nó chế được
+schema có ô `answer`, kiến thức đi qua nguyên vẹn. Khi nó rơi về đúng schema 4 khoá của tập
+huấn luyện, câu trả lời không còn chỗ nào để tồn tại và điểm về 0. Nhóm regression vì thế
+đang đo **"nó có chịu trả lời không"**, chứ không đo "nó có biết không".
+
+Điều này *củng cố* đơn thuốc của deck §14.3 chứ không bác bỏ: trộn 1–5% dữ liệu phổ thông
+dạy mô hình rằng tồn tại những đầu vào **không** phải ticket, tức là tấn công đúng vào cơ chế
+trên. Nhưng nó cũng chỉ ra một biện pháp rẻ hơn đáng thử trước: giữ nguyên hướng dẫn tác vụ
+trong prompt lúc train, để mô hình có tín hiệu rằng đây là *một* tác vụ chứ không phải *toàn
+bộ thế giới*. `SIMULATION-FINDINGS.md` đã ghi lại đúng cặp số ủng hộ điều này ở tier 0.8B:
+cùng adapter đó, đo với hướng dẫn còn trong prompt cho regression 0.522 thay vì 0.067.
+
+**Một lưu ý về chính thang đo.** Nhóm regression chấm bằng keyword recall trên văn bản đầu
+ra, nên nó không phân biệt được "không biết" với "biết nhưng không nói". Nó cũng không phải
+thang đo nghiêm: câu `Sông nào dài nhất Việt Nam?` **cả hai** model đều trả lời "sông Hồng"
+và cùng bị 0.00, còn ở câu trái cây nhiệt đới thì base trả lời "dâu tây" rồi tự đính chính
+giữa chừng. Bar 0.7578 của base là điểm của một mô hình nói năng lan man được chấm nới tay,
+không phải một năng lực đáng bảo vệ bằng mọi giá. Điều đó **không** cứu được bản fine-tune —
+0.5889 vẫn là tụt thật và vẫn vượt dung sai 8,4 lần — nhưng nó có nghĩa là con số 0.169 nên
+đọc như một *cảnh báo có phương hướng*, không phải một phép đo chính xác lượng năng lực đã mất.
 
 `valid_trace_rate = 0.00` là kết quả **đúng như dự đoán**, không phải lỗi. Cả 250 câu trả lời
 huấn luyện đều là JSON trần, không có trace nào để học; và như mục 2 cho thấy, khối
@@ -215,13 +266,17 @@ mẫu nào.** Đối chiếu từng mẫu giữa (b) và (c) trên đủ 50 mẫ
 | hoà | 16 |
 | fine-tune thua (b) | **0** |
 
-Rubric 3.4 yêu cầu ≥2 ca fine-tune thua, và lý do của yêu cầu đó là chống cherry-pick. Tôi
-không thể cung cấp ca thua vì **chúng không tồn tại** — nên thay vì chọn ví dụ, tôi trình bày
-toàn bộ phân bố ở trên; đó là bằng chứng mạnh hơn một cặp ví dụ, vì nó không cho phép chọn
-lọc. Dữ liệu đầy đủ nằm ở `results/qualitative.json` (50 dòng) và `results/baseline_preds.json`.
+Rubric 3.4 yêu cầu ≥2 ca fine-tune thua, và lý do của yêu cầu đó là chống cherry-pick. Trên
+nhóm target tôi không thể cung cấp ca thua vì **chúng không tồn tại** — nên thay vì chọn ví
+dụ, tôi trình bày toàn bộ phân bố ở trên; đó là bằng chứng mạnh hơn một cặp ví dụ, vì nó
+không cho phép chọn lọc. Dữ liệu đầy đủ nằm ở `results/qualitative.json` (50 dòng) và
+`results/baseline_preds.json`.
 
-Chỗ fine-tune **thật sự thua** nằm ở nhóm regression, nơi nó tụt 0.169 — nhưng đó là mục 5,
-không phải mục này.
+Ca thua có thật, và chúng nằm ở nhóm **regression** — 5 câu, liệt kê đầy đủ ở mục 5.1 với
+nguyên văn câu trả lời. Ba trong số đó là thua trắng 1.00 → 0.00. Chúng được đưa vào đây
+đúng như rubric đòi hỏi; chỉ khác là chúng không nằm ở nhóm mà rubric mặc định sẽ tìm thấy,
+và điều đó bản thân nó là kết quả: bản fine-tune này không đánh đổi trong tác vụ, nó đánh đổi
+**ra ngoài** tác vụ.
 
 | # | Ticket (rút gọn) | Nhãn đúng (trường sai) | (b) prompt | (c) fine-tune | Nhận xét |
 |---|---|---|---|---|---|
@@ -230,6 +285,8 @@ không phải mục này.
 | 3 (i=36) | "…tai nghe bluetooth… **Giá bao nhiêu**" | `hoi_thong_tin` / `thap` | `doi_tra` / `trung_binh` — 0.50 | `hoi_thong_tin` / `trung_binh` — 0.75 | ✅ FT thắng +0.25, vẫn sai `urgency` |
 | 4 (i=3) | "…bình giữ nhiệt… Chưa thấy tiền" | `hoan_tien` / **`thap`** | `trung_binh` — 0.75 | `trung_binh` — 0.75 | ❌ **FT sai**, hoà với (b) |
 | 5 (i=12) | "…áo khoác gió… Bị lỗi. **Khi nào tiện**" | `san_pham_loi` / **`thap`** | `trung_binh` — 0.75 | `trung_binh` — 0.75 | ❌ **FT sai**, hoà với (b) |
+| 6 (reg. 9) | "Một năm có bao nhiêu tháng?" | `12` | trả lời "12 tháng" — 1.00 | `{"intent": "hoi_thong_tin", …}` — 0.00 | ❌ **FT THUA −1.00** |
+| 7 (reg. 13) | "TP.HCM trước đây có tên là gì?" | `Sài Gòn` | trả lời "Sài Gòn" — 1.00 | phân loại câu hỏi, không trả lời — 0.00 | ❌ **FT THUA −1.00** |
 
 **Có mẫu chung ở các ca fine-tune sai không? Có, và nó tuyệt đối.** Cả **6/6** mẫu mà
 fine-tune không đạt điểm tuyệt đối đều sai **đúng một trường** — `urgency` — và **đúng một
@@ -257,6 +314,15 @@ chính nó tới +0.205 trên nhóm target — vì nó đánh mất 0.169 năng 
 8,4 lần. Đó là một quyết định khó chịu đúng theo cách lab thiết kế: nếu tôi chỉ đo cái tôi
 đang tối ưu, tôi đã có một chiến thắng sạch sẽ và một mô hình hỏng. Cổng bốn nhóm tồn tại
 chính xác để ngăn khoảnh khắc đó.
+
+Nhưng "đánh mất năng lực tổng quát" là cách nói thiếu chính xác, và mục 5.1 cho thấy vì sao.
+Kiến thức không mất: cùng bản fine-tune ấy trả lời đúng "Hà Nội", "Nguyễn Du", và thậm chí
+trả lời đúng `2^10 = 1024` ở câu mà base **tính sai**. Thứ bị bắt cóc là *định dạng đầu ra* —
+huấn luyện dạy nó rằng mọi đầu vào đều là JSON có cấu trúc, nên khi nó tự chế được schema có
+ô `answer` thì kiến thức đi qua nguyên vẹn, còn khi nó rơi về schema triage 4 khoá thì câu
+trả lời không còn chỗ nào để tồn tại. Cả 5 câu tụt điểm đều thuộc trường hợp thứ hai. Đây là
+một chẩn đoán khác hẳn "quên", và nó dẫn tới cách sửa khác: không phải dạy lại kiến thức, mà
+dạy lại rằng tồn tại những đầu vào **không** phải ticket.
 
 Đâu là đòn bẩy thật? Xếp theo mức độ ảnh hưởng tôi đo được: **learning rate** đứng đầu và bỏ
 xa phần còn lại — sai 10 lần là mất trắng, `target 0.000` và `format 0.000`, một tham số đưa
@@ -338,7 +404,11 @@ hình.
   tính theo điểm tuyệt đối của fine-tune thay vì theo `delta` so với (b) — hai câu hỏi khác
   nhau, đã sửa. Hai bug NB6 và lỗi CRLF nêu ở mục 7. Tất cả đều có commit riêng kèm nguyên
   nhân, và ba lỗi trong số đó có test chặn hồi quy.
-* **Chưa đo được:** dự đoán từng mẫu của nhóm regression. Đó là nhóm quyết định phán quyết
-  FAIL, nhưng NB2 và NB5 chỉ giữ giá trị trung bình — không file nào ghi lại model đã trả lời
-  gì. `scripts/dump_regression_preds.py` được viết để lấp chỗ này; phiên GPU kết thúc trước
-  khi kịp chạy.
+* **Dự đoán từng mẫu của nhóm regression** không được NB2 hay NB5 lưu lại — cả hai chỉ giữ
+  giá trị trung bình, nên nhóm quyết định phán quyết FAIL lại là nhóm duy nhất không kiểm
+  chứng được. Đã bổ sung `scripts/dump_regression_preds.py` và chạy sau khi NB5 hoàn tất; nó
+  dựng lại đúng lời gọi của NB5 (`system=None`, 96 token) nên hai giá trị trung bình khớp
+  chính xác với `baselines_frozen.json` và `verdict.json` (0.7578 và 0.5889). Kết quả là mục
+  5.1 — và nó đổi kết luận từ "thảm hoạ quên" sang "định dạng đầu ra bị bắt cóc", một chẩn
+  đoán khác hẳn. Nó chạy **sau** khi mọi thứ đã đóng băng và chỉ đọc, nên không đụng vào phép
+  so sánh được chấm.

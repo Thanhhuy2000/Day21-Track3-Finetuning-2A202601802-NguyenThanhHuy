@@ -34,10 +34,18 @@ JSON. Mốc đúng là (b): cùng model đó, prompt viết tử tế, 0.765 v�
 **nhanh hơn (a) 3,2 lần**. Khoảng cách giữa "thắng (a)" và "thắng (b)" là toàn bộ khác biệt
 giữa một con số để khoe và một quyết định kỹ thuật.
 
-Điều thứ hai tôi không còn tin: rằng fine-tune "thêm" kỹ năng. Nó **dịch chuyển** mô hình.
-Trên 4B, nhóm regression tụt 0.758 → 0.589; trên 0.8B (đã ghi trong repo) là 0.644 → 0.067,
-gần như xoá sạch. Càng khớp tác vụ tốt thì càng đánh mất phần ngoài tác vụ, và chi phí ấy
-không hiện ra ở bất kỳ chỉ số nào tôi đang tối ưu.
+Điều thứ hai tôi không còn tin: rằng fine-tune "thêm" kỹ năng. Nó **dịch chuyển** mô hình,
+và tôi còn hiểu sai cả cách nó dịch chuyển. Thấy regression tụt 0.758 → 0.589, tôi kết luận
+ngay là thảm hoạ quên. Đến khi đọc từng câu trả lời thì hoá ra không phải: cùng bản fine-tune
+ấy vẫn trả lời đúng "Hà Nội", "Nguyễn Du", và trả lời đúng `2^10 = 1024` ở câu mà base
+**tính sai**. Kiến thức còn nguyên. Thứ nó đánh mất là *chỗ để đặt câu trả lời* — nó học được
+rằng mọi đầu vào đều là JSON 4 khoá, nên với câu "TP.HCM trước đây tên gì?" nó viết ra
+`intent_text: "Người dùng đang hỏi về tên cũ của thành phố Hồ Chí Minh"` rồi dừng. Nó hiểu
+câu hỏi và không có ô nào để viết "Sài Gòn".
+
+Bài học thật nằm ở chỗ tôi suýt không học được nó: một con số tổng hợp cho tôi *một* câu
+chuyện hợp lý, và tôi đã định dừng ở đó. Chỉ khi nhìn 15 câu trả lời cụ thể thì câu chuyện
+mới đổi — và cách sửa cũng đổi theo.
 
 **4. Bạn dùng AI assistant vào việc gì trong lab? Chỗ nào nó sai?**
 
